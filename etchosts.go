@@ -23,27 +23,35 @@ type Entry struct {
 }
 
 func (entry Entry) String() string {
-	return fmt.Sprintf("%s\t%s\t%s\n", entry.Ipaddr, entry.Hostname, entry.Alias)
+	return fmt.Sprintf("%s\t%s\t%s", entry.Ipaddr, entry.Hostname, entry.Alias)
 }
 
 type EtcHosts struct {
 	Entries *list.List
 	sync.RWMutex
-	hostsFile *os.File
+	hostsFile     *os.File
+	hostsFilePath string
 }
 
 func (ehosts *EtcHosts) String() string {
 	result := bytes.NewBufferString("")
 	for e := ehosts.Entries.Front(); e != nil; e = e.Next() {
-		fmt.Fprint(result, e.Value.(Entry))
+		fmt.Fprintln(result, e.Value.(Entry))
 	}
 	return result.String()
+}
+
+func hostsFileWritable(hostFilePath string) {
+	return true
 }
 
 // If hostsFilePath == "" is true, then default hosts file is used.
 func New(hostsFilePath string) (*EtcHosts, error) {
 	if len(hostsFilePath) == 0 {
 		hostsFilePath = defaultEtcHostsPath
+	}
+	if !hostsFileWritable(hostsFilePath) {
+		return errors.New("user not allowed to edit file")
 	}
 	f, err := os.OpenFile(hostsFilePath, os.O_RDWR, 0644)
 	if err != nil {
@@ -59,38 +67,39 @@ func New(hostsFilePath string) (*EtcHosts, error) {
 		}
 		entry := Entry{}
 		splitEntries := strings.Fields(line)
-		c := 0
 		for i := 0; i < len(splitEntries); i++ {
 			field := strings.TrimSpace(splitEntries[i])
 			if len(field) == 0 {
 				continue
 			}
-			switch c {
-			case 0: // net.IP
+			switch i {
+			case 0:
+				fmt.Println("ip:", field, len(field))
 				entry.Ipaddr = net.ParseIP(field)
-			case 1: // hostname
+				if entry.Ipaddr == nil {
+					return nil, errors.New("ip for field is nil")
+				}
+			case 1:
 				entry.Hostname = field
-			case 2: // alias
+			case 2:
 				entry.Alias = field
 				break
 			}
-			c++
 		}
-		//fmt.Println("Adding entry: ", splitEntries[0])
 		hosts.PushBack(entry)
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
-	ehosts := &EtcHosts{
-		Entries:   hosts,
-		hostsFile: f,
-	}
-	return ehosts, nil
+	return &EtcHosts{
+		Entries:       hosts,
+		hostsFile:     f,
+		hostsFilePath: hostsFilePath,
+	}, nil
 }
 
 // As `etchosts` package keeps an open file descriptor for its operations,
-// application using this pkg should be responsible for calling close on
+// application using this pkg will be responsible for calling close on
 // associated file.
 func (ehosts *EtcHosts) Close() error {
 	return ehosts.hostsFile.Close()
@@ -136,19 +145,20 @@ func (ehosts *EtcHosts) Delete(hostname string) error {
 	return nil
 }
 
-// It could have been possible to do CRUD ops on `etcHostsPath` as soon as op is called.
+// It could have been possible to do CRUD ops on `etcHostsPath` just after op is called.
 // But that might lead too many disk write operations. Hence, once user has done with
 // modifying etc hosts file, she should call Flush, which will write to file.
 func (ehosts *EtcHosts) Flush() error {
 	ehosts.Lock()
 	defer ehosts.Unlock()
 
-	// reset file
-	if _, err := ehosts.hostsFile.Write([]byte{}); err != nil {
-		panic(err)
+	// reset contents of hostFile
+	if err := ehosts.hostsFile.Truncate(0); err != nil {
+		return err
 	}
+	ehosts.hostsFile.Seek(0, os.SEEK_SET)
 	for e := ehosts.Entries.Front(); e != nil; e = e.Next() {
-		_, err := ehosts.hostsFile.Write([]byte(e.Value.(Entry).String()))
+		_, err := ehosts.hostsFile.Write([]byte(e.Value.(Entry).String() + "\n"))
 		if err != nil {
 			panic(err)
 		}
@@ -156,6 +166,7 @@ func (ehosts *EtcHosts) Flush() error {
 	return nil
 }
 
+// find searches an entry matching hostname
 func (ehosts *EtcHosts) find(hostname string) *list.Element {
 	for e := ehosts.Entries.Front(); e != nil; e = e.Next() {
 		if e.Value.(Entry).Hostname == hostname {

@@ -27,13 +27,29 @@ func init() {
 	scmd.StringVar(&hostname, "hostname", "", "hostname of machine")
 	scmd.StringVar(&ipaddr, "ip", "", "ipaddr of machine")
 	scmd.StringVar(&alias, "alias", "", "alias of machine")
+	scmd.Usage = func() {
+		fmt.Println(` Usage: sudo etchosts <cmd> [options]")
+cmd:
+	create
+	read
+	update
+	delete
+`)
+		scmd.PrintDefaults()
+	}
 }
 
 func main() {
+	fmt.Println(os.Geteuid())
+	if len(os.Args) < 2 {
+		scmd.Usage()
+		return
+	}
 	ehosts, err := etchosts.New("")
 	if err != nil {
 		panic(err)
 	}
+	defer ehosts.Close()
 	scmd.Parse(os.Args[2:])
 	if !scmd.Parsed() {
 		panic("failed to parse flags")
@@ -56,14 +72,15 @@ func main() {
 			Ipaddr:   ip,
 			Alias:    alias,
 		}); err != nil {
-			panic(err)
+			fmt.Println("err creating entry:", err)
+			return
 		}
 		ehosts.Flush()
 	case "read":
 		if entry, err := ehosts.Read(hostname); err != nil {
-			fmt.Println(entry)
+			fmt.Println("err reading entry:", err)
 		} else {
-			fmt.Println("No entry present for ", hostname)
+			fmt.Println(entry)
 		}
 	case "update":
 		if len(ipaddr) == 0 {
@@ -79,14 +96,15 @@ func main() {
 			Alias:    alias,
 		}); err != nil {
 			panic(err)
+			fmt.Println("err updating entry:", err)
 		}
 		ehosts.Flush()
 	case "delete":
 		if err := ehosts.Delete(hostname); err != nil {
-			panic(err)
+			fmt.Println("err deleting entry:", err)
 		}
 		ehosts.Flush()
 	default:
-		panic("invalid command")
+		panic(fmt.Sprintln("invalid command: ", cmd))
 	}
 }
