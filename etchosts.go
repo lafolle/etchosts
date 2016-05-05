@@ -41,7 +41,7 @@ func (ehosts *EtcHosts) String() string {
 	return result.String()
 }
 
-func hostsFileWritable(hostFilePath string) {
+func hostsFileWritable(hostFilePath string) bool {
 	return true
 }
 
@@ -51,7 +51,7 @@ func New(hostsFilePath string) (*EtcHosts, error) {
 		hostsFilePath = defaultEtcHostsPath
 	}
 	if !hostsFileWritable(hostsFilePath) {
-		return errors.New("user not allowed to edit file")
+		return nil, errors.New("user not allowed to edit file")
 	}
 	f, err := os.OpenFile(hostsFilePath, os.O_RDWR, 0644)
 	if err != nil {
@@ -74,7 +74,6 @@ func New(hostsFilePath string) (*EtcHosts, error) {
 			}
 			switch i {
 			case 0:
-				fmt.Println("ip:", field, len(field))
 				entry.Ipaddr = net.ParseIP(field)
 				if entry.Ipaddr == nil {
 					return nil, errors.New("ip for field is nil")
@@ -116,6 +115,7 @@ func (ehosts *EtcHosts) Create(entry Entry) error {
 }
 
 // Read returns the first entry with hostname matching hostname argument.
+// If no entry is present with given hostname, returned error is not equal to nil.
 func (ehosts *EtcHosts) Read(hostname string) (Entry, error) {
 	if elm := ehosts.find(hostname); elm == nil {
 		return Entry{}, errors.New(fmt.Sprintf("%s not found", hostname))

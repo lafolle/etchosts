@@ -40,7 +40,6 @@ cmd:
 }
 
 func main() {
-	fmt.Println(os.Geteuid())
 	if len(os.Args) < 2 {
 		scmd.Usage()
 		return
